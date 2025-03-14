@@ -8,6 +8,14 @@ import "core:strings"
 import "core:time"
 import "deps:toml"
 
+/*
+
+TODO
+====
+- [ ] Ensure we can free all memory used for allocating the toml data
+
+*/
+
 log_file_name :: proc(state_root: string) -> string {
 	date_buf: [time.MIN_YYYY_DATE_LEN]u8
 	log_timestamp := time.to_string_yyyy_mm_dd(time.now(), date_buf[:])
@@ -40,7 +48,8 @@ locate_sleipnir_toml :: proc() -> (string, bool) {
 }
 
 Configuration :: struct {
-	log_level: log.Level,
+	log_level: Maybe(string),
+	version:   string,
 }
 
 
@@ -48,7 +57,7 @@ resolve_configuration :: proc(configuration: ^Configuration) -> bool {
 	config_root, config_found := config_dir("sleipnir")
 	defer delete(config_root)
 
-	base_config: toml.Table
+	global: ^toml.Table
 	if config_found {
 		config_path := filepath.join({config_root, "sleipnir.toml"})
 
@@ -59,9 +68,10 @@ resolve_configuration :: proc(configuration: ^Configuration) -> bool {
 				message, _ := toml.format_error(err)
 				defer delete(message, context.temp_allocator)
 
-				log.fatalf("failed loading '%v': ", config_path, message)
+				log.fatalf("failed loading '%v': %v", config_path, message)
 				return false
 			}
+			global = table
 		} else {
 			log.info("No global configuration found:", config_path)
 		}
@@ -76,10 +86,26 @@ resolve_configuration :: proc(configuration: ^Configuration) -> bool {
 	}
 	defer delete(dominating_toml)
 
-	res, err := toml.parse_file(dominating_toml)
-	toml.print_table(res)
-	return false
+	local, err := toml.parse_file(dominating_toml)
+
+	if err.type != .None {
+		message, _ := toml.format_error(err)
+		defer delete(message, context.temp_allocator)
+
+		log.fatalf("failed loading '%v': %v", dominating_toml, message)
+		return false
+	}
+
+	if !extract_required_field(&configuration.version, local, global, "version") {
+		log.fatal("required field 'version' unset")
+		return false
+	}
+	extract_optional_field(&configuration.log_level, local, global)
+
+	return true
 }
+
+
 main :: proc() {
 	log_level := log.Level.Info
 	if level_string, found := os.lookup_env("SLEIPNIR_LOG"); found {
