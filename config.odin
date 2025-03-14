@@ -34,8 +34,8 @@ extract_field :: proc(
 	field_path: ..string,
 ) {
 	when T == bool {
-		local_value, in_local := toml.get_bool(local)
-		global_value, in_global := toml.get_bool(global)
+		local_value, in_local := toml.get_bool(local, ..field_path)
+		global_value, in_global := toml.get_bool(global, ..field_path)
 	}
 
 	if in_local {
@@ -55,12 +55,12 @@ extract_optional_field :: proc(
 ) {
 	when T == bool {
 		local_value, in_local := toml.get_bool(local, ..field_path)
-		global_value, in_global := toml.get_bool(global)
+		global_value, in_global := toml.get_bool(global, ..field_path)
 	}
 
 	when T == string {
-		local_value, in_local := toml.get_string(local)
-		global_value, in_global := toml.get_string(global)
+		local_value, in_local := toml.get_string(local, ..field_path)
+		global_value, in_global := toml.get_string(global, ..field_path)
 	}
 
 	if in_local {

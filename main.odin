@@ -100,7 +100,7 @@ resolve_configuration :: proc(configuration: ^Configuration) -> bool {
 		log.fatal("required field 'version' unset")
 		return false
 	}
-	extract_optional_field(&configuration.log_level, local, global)
+	extract_optional_field(&configuration.log_level, local, global, "log_level")
 
 	return true
 }
@@ -168,4 +168,7 @@ main :: proc() {
 	configuration: Configuration
 	resolve_configuration(&configuration)
 
+	manifest, ok := load_manifest()
+
+	log.info("version 2025-03", manifest.versions["dev-2025-03"])
 }
