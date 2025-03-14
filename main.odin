@@ -39,6 +39,47 @@ locate_sleipnir_toml :: proc() -> (string, bool) {
 	return "", false
 }
 
+Configuration :: struct {
+	log_level: log.Level,
+}
+
+
+resolve_configuration :: proc(configuration: ^Configuration) -> bool {
+	config_root, config_found := config_dir("sleipnir")
+	defer delete(config_root)
+
+	base_config: toml.Table
+	if config_found {
+		config_path := filepath.join({config_root, "sleipnir.toml"})
+
+		if os.exists(config_path) {
+			log.info("Loading global configuration:", config_path)
+			table, err := toml.parse_file(config_path)
+			if err.type != .None {
+				message, _ := toml.format_error(err)
+				defer delete(message, context.temp_allocator)
+
+				log.fatalf("failed loading '%v': ", config_path, message)
+				return false
+			}
+		} else {
+			log.info("No global configuration found:", config_path)
+		}
+	}
+
+	dominating_toml, found_toml := locate_sleipnir_toml()
+	if !found_toml {
+		log.fatalf("Failed locating 'sleipnir.toml', exiting")
+		return false
+	} else {
+		log.info("Loading local configuration:", dominating_toml)
+	}
+	defer delete(dominating_toml)
+
+	res, err := toml.parse_file(dominating_toml)
+	toml.print_table(res)
+	return false
+}
 main :: proc() {
 	log_level := log.Level.Info
 	if level_string, found := os.lookup_env("SLEIPNIR_LOG"); found {
@@ -61,60 +102,44 @@ main :: proc() {
 	context.logger = console_logger
 	state_root, state_found := state_dir("sleipnir")
 	log_file_handle := os.INVALID_HANDLE
-	multi_logger := log.nil_logger()
 
 	if !state_found {
-		log.warn("failed locating state directory, continuing with only console logging")
-	} else {
-
-		when ODIN_OS == .Linux {
-			log_file_path := log_file_name(state_root)
-			if !os.exists(state_root) {
-				os.make_directory(state_root)
-			}
-
-			handle, err := os.open(
-				log_file_path,
-				os.O_CREATE | os.O_APPEND | os.O_WRONLY,
-				mode = 0o755,
-			)
-
-			if err != nil {
-				log.fatalf("failed opening log file: %v", err)
-				os.exit(1)
-			}
-		}
-
-		file_logger := log.create_file_logger(handle)
-		defer log.destroy_file_logger(file_logger)
-
-		multi_logger = log.create_multi_logger(console_logger, file_logger)
-		context.logger = multi_logger
-		log.debug("started file logger to", log_file_path)
+		log.fatal("failed locating state directory, cannot continue")
+		os.exit(1)
 	}
+
+	log_file_path := log_file_name(state_root)
+	if !os.exists(state_root) {
+		os.make_directory(state_root)
+	}
+
+	when ODIN_OS == .Linux {
+		handle, err := os.open(
+			log_file_path,
+			os.O_CREATE | os.O_APPEND | os.O_WRONLY,
+			mode = 0o755,
+		)
+	}
+
+	if err != nil {
+		log.fatalf("failed opening log file: %v", err)
+		os.exit(1)
+	}
+
+	file_logger := log.create_file_logger(handle)
+	defer log.destroy_file_logger(file_logger)
+
+	multi_logger := log.create_multi_logger(console_logger, file_logger)
+	context.logger = multi_logger
+	log.debug("started file logger to", log_file_path)
+
 
 	defer {
 		context.logger = log.nil_logger()
-		if multi_logger.procedure != log.nil_logger_proc {
-			log.destroy_multi_logger(multi_logger)
-		}
+		log.destroy_multi_logger(multi_logger)
 	}
 
-
-	config_root, config_found := config_dir("sleipnir")
-	if config_found {
-		log.info("configuration directory:", config_root)
-	}
-
-	dominating_toml, found_toml := locate_sleipnir_toml()
-	if !found_toml {
-		log.fatalf("failed locating sleipnir.toml, exiting")
-	} else {
-		log.info("found root:", dominating_toml)
-	}
-
-	res, err := toml.parse_file(dominating_toml)
-	log.info(res, err)
-	toml.print_table(res)
+	configuration: Configuration
+	resolve_configuration(&configuration)
 
 }
