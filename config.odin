@@ -1,6 +1,6 @@
 package sleipnir
+import "core:strings"
 import "deps:toml"
-
 extract_required_field :: proc(
 	target_field: ^$T,
 	local: ^toml.Table,
@@ -10,17 +10,24 @@ extract_required_field :: proc(
 	when T == bool {
 		local_value, in_local := toml.get_bool(local, ..field_path)
 		global_value, in_global := toml.get_bool(global, ..field_path)
+
+		if in_local {
+			target_field^ = local_value
+		} else if in_global {
+			target_field^ = global_value
+		}
 	}
 
 	when T == string {
 		local_value, in_local := toml.get_string(local, ..field_path)
 		global_value, in_global := toml.get_string(global, ..field_path)
-	}
 
-	if in_local {
-		target_field^ = local_value
-	} else if in_global {
-		target_field^ = global_value
+
+		if in_local {
+			target_field^ = strings.clone(local_value)
+		} else if in_global {
+			target_field^ = strings.clone(global_value)
+		}
 	}
 
 	return in_local || in_global
@@ -56,16 +63,23 @@ extract_optional_field :: proc(
 	when T == bool {
 		local_value, in_local := toml.get_bool(local, ..field_path)
 		global_value, in_global := toml.get_bool(global, ..field_path)
+
+		if in_local {
+			target_field^ = local_value
+		} else if in_global {
+			target_field^ = global_value
+		}
 	}
 
 	when T == string {
 		local_value, in_local := toml.get_string(local, ..field_path)
 		global_value, in_global := toml.get_string(global, ..field_path)
+
+		if in_local {
+			target_field^ = strings.clone(local_value)
+		} else if in_global {
+			target_field^ = strings.clone(global_value)
+		}
 	}
 
-	if in_local {
-		target_field^ = local_value
-	} else if in_global {
-		target_field^ = global_value
-	}
 }

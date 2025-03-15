@@ -166,9 +166,62 @@ main :: proc() {
 	}
 
 	configuration: Configuration
-	resolve_configuration(&configuration)
+	if !resolve_configuration(&configuration) {
+		log.fatal("Configuration not valid")
+		os.exit(1)
+	}
 
+	log.debug(configuration)
 	manifest, ok := load_manifest()
+	if !ok {
+		log.fatal("Failed loading version manifest")
+		return
+	}
+	defer destroy_manifest(manifest)
 
-	log.info("version 2025-03", manifest.versions["dev-2025-03"])
+	log.infof("Requested version: %v", configuration.version)
+
+	variants := manifest.versions[configuration.version]
+	log.debug("Version info", variants)
+
+	if get_platform_id() not_in variants {
+		log.fatalf("Version %v has no prebuilt binaries for platform", get_platform_id())
+		os.exit(1)
+	}
+
+	variant := variants[get_platform_id()]
+	log.info("Install candidate", variant)
+
+	install_toolchain(state_root, configuration.version, variant)
+}
+
+get_platform_id :: proc() -> string {
+	#partial switch ODIN_OS {
+	case .Linux:
+		switch ODIN_ARCH {
+		case .amd64:
+			return "linux-x86_64"
+		case .i386, .arm64, .arm32, .wasm32, .riscv64, .wasm64p32, .Unknown:
+			panic(fmt.tprintf("no pre-built odin binaries for platfor %v-%v", ODIN_OS, ODIN_ARCH))
+		}
+	case .Windows:
+		switch ODIN_ARCH {
+		case .amd64:
+			return "windows-x86_64"
+		case .i386, .arm64, .arm32, .wasm32, .riscv64, .wasm64p32, .Unknown:
+			panic(fmt.tprintf("no pre-built odin binaries for platfor %v-%v", ODIN_OS, ODIN_ARCH))
+		}
+	case .Darwin:
+		switch ODIN_ARCH {
+		case .amd64:
+			return "macos-x86_64"
+		case .arm64:
+			return "macos-aarch64"
+
+		case .i386, .arm32, .wasm32, .riscv64, .wasm64p32, .Unknown:
+			panic(fmt.tprintf("no pre-built odin binaries for platfor %v-%v", ODIN_OS, ODIN_ARCH))
+		}
+	}
+
+	panic(fmt.tprintf("no pre-built odin binaries for platfor %v-%v", ODIN_OS, ODIN_ARCH))
 }

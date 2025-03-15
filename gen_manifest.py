@@ -140,7 +140,6 @@ def main():
         while link:
             response = read_releases(link)
             releases.extend(response.json())
-            print(response.headers["X-RateLimit-Remaining"])
             if "Link" in response.headers:
                 links = response.headers["Link"].split(",")
                 for link in links:

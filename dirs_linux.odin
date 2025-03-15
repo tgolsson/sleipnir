@@ -48,3 +48,23 @@ state_dir :: proc(app: string, allocator := context.allocator) -> (string, bool)
 
 	return "", false
 }
+
+
+cache_dir :: proc(app: string, allocator := context.allocator) -> (string, bool) {
+	xdg_cache_dir, xdg_found := os.lookup_env("XDG_CACHE_HOME", allocator = context.temp_allocator)
+	if xdg_found {
+		defer delete(xdg_cache_dir, context.temp_allocator)
+		res, err := filepath.join([]string{xdg_cache_dir, app}, allocator)
+		return res, err == nil
+	}
+
+	home_dir, home_found := os.lookup_env("HOME", allocator = context.temp_allocator)
+	if home_found {
+		defer delete(home_dir, context.temp_allocator)
+		res, err := filepath.join([]string{home_dir, ".cache", app}, allocator)
+
+		return res, err == nil
+	}
+
+	return "", false
+}
