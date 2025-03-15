@@ -278,6 +278,31 @@ destroy_local :: proc(local: Local_File) {
 	delete(local.filename)
 	delete(local.extra_fields)
 }
+
+unpack_file :: proc(
+	zip: Zip_File,
+	root: string,
+	file: Central_Directory,
+	temp_allocator: runtime.Allocator,
+) -> (
+	err: io.Error,
+) {
+	ensure_dirs(root, file.file_name, temp_allocator)
+
+	local := read_local(zip, file) or_return
+	defer destroy_local(local)
+
+	if local.compression_method != 0 {
+		// TODO
+	}
+	full_path := filepath.join({root, file.file_name}, temp_allocator)
+	defer delete(full_path, temp_allocator)
+	handle, ok := os.open(full_path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
+	defer os.close(handle)
+	writer := os.stream_from_handle(handle)
+	io.copy_n(writer, zip.reader, i64(local.usize))
+}
+
 // Unpacks all the files rooted out_directory.
 unpack_to :: proc(
 	zip: Zip_File,
@@ -287,18 +312,7 @@ unpack_to :: proc(
 	err: io.Error,
 ) {
 	for file in zip.files {
-		ensure_dirs(out_directory, file.file_name, temp_allocator)
-
-		local := read_local(zip, file) or_return
-		defer destroy_local(local)
-
-		full_path := filepath.join({out_directory, file.file_name}, temp_allocator)
-		defer delete(full_path, temp_allocator)
-		handle, ok := os.open(full_path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
-		defer os.close(handle)
-		writer := os.stream_from_handle(handle)
-		io.copy_n(writer, zip.reader, i64(local.usize))
-
+		unpack_file(zip, out_directory, file, temp_allocator)
 	}
 	return nil
 }
