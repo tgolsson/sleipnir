@@ -236,14 +236,14 @@ ensure_dirs :: proc(root: string, sub: string, temp_allocator: runtime.Allocator
 		}
 
 		if total_path != root {
-			delete(total_path)
+			delete(total_path, temp_allocator)
 		}
 
 		total_path = subpath
 	}
 
 	if total_path != root {
-		delete(total_path)
+		delete(total_path, temp_allocator)
 	}
 }
 
@@ -294,7 +294,7 @@ unpack_to :: proc(
 
 		full_path := filepath.join({out_directory, file.file_name}, temp_allocator)
 		defer delete(full_path, temp_allocator)
-		handle, ok := os.open(full_path, os.O_CREATE | os.O_WRONLY, 0o644)
+		handle, ok := os.open(full_path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
 		defer os.close(handle)
 		writer := os.stream_from_handle(handle)
 		io.copy_n(writer, zip.reader, i64(local.usize))
