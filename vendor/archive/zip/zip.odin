@@ -15,44 +15,6 @@ import "core:time"
 
 // - [ ] Stop caring about endianness. It's all little-endian...
 
-EOCD_SIGNATURE :: 0x06054b50
-Eocd_Record :: struct #packed {
-	signature:          u32le,
-	this_disk:          u16le,
-	cd_start_disk:      u16le,
-	cd_count_this_disk: u16le,
-	cd_count_total:     u16le,
-	cd_size:            u32le,
-	cd_start_offset:    u32le,
-	comment_length:     u16le,
-	comment:            [0]u8,
-}
-
-EOCD_Z64_LOCATOR_SIGNATURE :: 0x07064b50
-Eocd_Zip64_Locator :: struct #packed {
-	signature:            u32le,
-	eocd_start_disk:      u32le,
-	eocd_relative_offset: u64le,
-	total_disk_count:     u32le,
-}
-
-EOCD_ZIP64_SIGNATURE :: 0x06064b50
-Eocd_Zip64_Record :: struct #packed {
-	signature:                u32le,
-	record_size:              u64le,
-	source_version:           u16le,
-	min_version:              u16le,
-	this_disk:                u32le,
-	cd_start_disk:            u32le,
-	cd_entry_count_this_disk: u64le,
-	cd_entry_count_total:     u64le,
-	cd_size:                  u64le,
-	cd_reloff:                u64le,
-}
-
-
-#assert(size_of(Eocd_Zip64_Record) == 56)
-#assert(size_of(Eocd_Record) == 22)
 
 Eocd :: union {
 	Eocd_Record,
@@ -357,7 +319,6 @@ unpack_file_bytes :: proc(
 	return output, nil
 }
 
-
 unpack_file_into :: proc(
 	zip: Zip_File,
 	root: string,
@@ -457,20 +418,4 @@ read :: proc(reader: io.Reader) -> (zip: Zip_File, err: io.Error) {
 	zip.eocd = generic
 	zip.start = prefix_length
 	return zip, err
-}
-
-msdos_date_time_to_time :: proc(clock: u16le, date: u16le) -> time.Time {
-	clock := u16(clock)
-	date := u16(date)
-
-	second := clock & 0b11111
-	minute := (clock >> 5) & 0b111111
-	hour := (clock >> 11) & 0b11111
-
-	day := date & 0b11111
-	month := (date >> 5) & 0b1111
-	year := 1980 + (date >> 9) & 0b1111111
-
-	t, _ := time.components_to_time(year, month, day, hour, minute, second)
-	return t
 }
