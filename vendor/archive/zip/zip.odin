@@ -3,13 +3,14 @@ package zip
 import "base:intrinsics"
 import "base:runtime"
 
+import "core:bytes"
+import "core:compress/zlib"
 import "core:fmt"
 import "core:io"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:time"
-
 // TODO:
 
 // - [ ] Stop caring about endianness. It's all little-endian...
@@ -317,7 +318,7 @@ unpack_file_bytes :: proc(
 	file: Central_Directory,
 	temp_allocator: runtime.Allocator,
 ) -> (
-	bytes: []byte,
+	output: []byte,
 	err: io.Error,
 ) {
 	// this ensures we end up at the right file position
@@ -325,26 +326,35 @@ unpack_file_bytes :: proc(
 	defer destroy_local(local)
 
 	compression_method := Compression_Method(local.compression_method)
-	switch compression_method {
+	#partial switch compression_method {
 	case .Stored:
-		buffer := make([]byte, local.usize)
+		output = make([]byte, local.usize)
 		defer if err != nil {
-			delete(buffer)
+			delete(output)
 		}
-		io.read_full(zip.reader, buffer) or_return
-		return buffer, nil
+		io.read_full(zip.reader, output) or_return
+
 	case .Deflated:
-		buffer := make([]byte, local.csize)
-		defer if err != nil {
-			delete(buffer)
-		}
+		buffer := make([]byte, local.csize, temp_allocator)
+		defer delete(buffer, temp_allocator)
 		io.read_full(zip.reader, buffer) or_return
-		return buffer, nil
+
+		buf: bytes.Buffer
+		bytes.buffer_init_allocator(&buf, int(local.usize), int(local.usize))
+
+		zlib.inflate_from_byte_array(
+			buffer,
+			&buf,
+			raw = true,
+			expected_output_size = int(local.usize),
+		)
+
+		output = buf.buf[:]
 	case:
 		panic(fmt.tprintf("unhandled compression method", local.compression_method))
 	}
 
-
+	return output, nil
 }
 
 
@@ -360,16 +370,24 @@ unpack_file_into :: proc(
 
 	local := read_local(zip, file) or_return
 	defer destroy_local(local)
-
-	if local.compression_method != 0 {
-		// TODO
-	}
 	full_path := filepath.join({root, file.file_name}, temp_allocator)
 	defer delete(full_path, temp_allocator)
 	handle, ok := os.open(full_path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
 	defer os.close(handle)
 	writer := os.stream_from_handle(handle)
-	io.copy_n(writer, zip.reader, i64(local.usize))
+
+	if local.compression_method != 0 {
+		bytes := unpack_file_bytes(zip, file, temp_allocator) or_return
+		_, oserr := os.write(handle, bytes)
+		if oserr != nil {
+			fmt.println(oserr) // TODO
+			return io.Error.EOF
+		}
+	} else {
+		io.copy_n(writer, zip.reader, i64(local.usize)) or_return
+	}
+
+	return nil
 }
 
 // Unpacks all the files rooted out_directory.

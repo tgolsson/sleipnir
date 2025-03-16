@@ -6,7 +6,7 @@ import "core:io"
 import "core:testing"
 
 main :: proc() {
-	data :: #load("/home/ts/odin-linux-amd64-dev-2024-10.zip", []byte)
+	data :: #load("helloworld_deflate.zip", []byte)
 
 	reader: bytes.Reader
 
