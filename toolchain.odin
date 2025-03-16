@@ -1,18 +1,19 @@
 package sleipnir
 
 
-import "core:path/filepath"
 import "core:log"
 import "core:os"
+import "core:path/filepath"
 
-import "deps:http/client"
 import "deps:http"
+import "deps:http/client"
 
 is_toolchain_installed :: proc(state_root: string, version: string) -> bool {
 	toolchain_path := filepath.join({state_root, version})
 	defer delete(toolchain_path)
-
-	return os.exists(toolchain_path)
+	exists := os.exists(toolchain_path)
+	log.info("Checking toolchain destination: %v = %v", toolchain_path, exists)
+	return exists
 }
 
 toolchain_entrypoint :: proc(state_root: string, version: string) -> (bin: string, ok: bool) {
@@ -23,11 +24,37 @@ toolchain_entrypoint :: proc(state_root: string, version: string) -> (bin: strin
 }
 
 
-install_toolchain :: proc(state_root: string, version: string, detail: Version_Detail ) -> bool {
+install_toolchain :: proc(state_root: string, version: string, detail: Version_Detail) -> bool {
 	if !is_toolchain_installed(state_root, version) {
+
 		do_install_toolchain(state_root, version, detail)
 	}
 	return false
+}
+
+@(private)
+do_install_toolchain :: proc(state_root: string, version: string, detail: Version_Detail) -> bool {
+	log.info("Starting toolchain install %v", version)
+	toolchain_path := filepath.join({state_root, version})
+	defer delete(toolchain_path)
+
+	archive, downloaded := do_download_toolchain(detail)
+	if !downloaded {
+		log.fatal("Unable to install toolchain, download failed")
+		return false
+	}
+
+	log.infof("Downloaded toolchain %v -> %v", version, archive)
+
+	if !os.exists(toolchain_path) {
+		mkdir_err := os.make_directory(toolchain_path)
+		if mkdir_err != nil {
+			log.fatal("Failed creating toolchain directory: %v", toolchain_path)
+			return false
+		}
+	}
+
+	return true
 }
 
 @(private)
@@ -61,25 +88,4 @@ do_download_toolchain :: proc(version: Version_Detail) -> (archive: string, succ
 
 	os.write_entire_file(output_filename, transmute([]u8)(body.(client.Body_Plain)))
 	return output_filename, true
-}
-
-@(private)
-do_install_toolchain :: proc(state_root: string, version: string, detail: Version_Detail ) -> bool {
-	toolchain_path := filepath.join({state_root, version})
-	defer delete(toolchain_path)
-
-	if !os.exists(toolchain_path){
-		mkdir_err := os.make_directory(toolchain_path)
-		if mkdir_err != nil {
-			log.fatal("Failed creating toolchain directory: %v", toolchain_path)
-		}
-	}
-
-	archive, downloaded := do_download_toolchain(detail)
-	if !downloaded {
-		log.fatal("Unable to install toolchain, download failed")
-		return false
-	}
-
-	return true
 }

@@ -11,7 +11,9 @@ import "core:path/filepath"
 import "core:time"
 
 // TODO:
-// - [ ] Stop caring about endianness.
+
+// - [ ] Stop caring about endianness. It's all little-endian...
+
 EOCD_SIGNATURE :: 0x06054b50
 Eocd_Record :: struct #packed {
 	signature:          u32le,
@@ -151,6 +153,36 @@ Central_Directory_Header :: struct #packed {
 	local_reloff:       u32le,
 }
 
+Compression_Method :: enum {
+	Stored             = 0,
+	Shrunk             = 1,
+	Reduced_1          = 2,
+	Reduced_2          = 3,
+	Reduced_3          = 4,
+	Reduced_4          = 5,
+	Imploded           = 6,
+	Reserved_Tokenized = 7,
+	Deflated           = 8,
+	Deflate64          = 9,
+	PKWare_Imploding   = 10,
+	PKWare_Reserved    = 11,
+	BZip2              = 12,
+	PKWare_Reserved_2  = 13,
+	Lzma               = 14,
+	PKWare_Reserved_3  = 15,
+	IBM_z              = 16,
+	PKWare_Reserved_4  = 17,
+	IBM_Terse          = 18,
+	IBM_Lz77           = 19,
+	Deprecated_Zstd    = 20,
+	Zstd               = 93,
+	MP3                = 94,
+	XZ                 = 95,
+	Jpeg               = 96,
+	WavPack            = 97,
+	PPMd               = 98,
+	AE_x               = 99,
+}
 
 Central_Directory :: struct {
 	using _:      Central_Directory_Header,
@@ -247,6 +279,7 @@ ensure_dirs :: proc(root: string, sub: string, temp_allocator: runtime.Allocator
 	}
 }
 
+@(private)
 read_local :: proc(zip: Zip_File, cd: Central_Directory) -> (local: Local_File, err: io.Error) {
 	fmt.println("Seeking to ", i64(cd.local_reloff))
 	io.seek(zip.reader, i64(cd.local_reloff), .Start)
@@ -279,7 +312,43 @@ destroy_local :: proc(local: Local_File) {
 	delete(local.extra_fields)
 }
 
-unpack_file :: proc(
+unpack_file_bytes :: proc(
+	zip: Zip_File,
+	file: Central_Directory,
+	temp_allocator: runtime.Allocator,
+) -> (
+	bytes: []byte,
+	err: io.Error,
+) {
+	// this ensures we end up at the right file position
+	local := read_local(zip, file) or_return
+	defer destroy_local(local)
+
+	compression_method := Compression_Method(local.compression_method)
+	switch compression_method {
+	case .Stored:
+		buffer := make([]byte, local.usize)
+		defer if err != nil {
+			delete(buffer)
+		}
+		io.read_full(zip.reader, buffer) or_return
+		return buffer, nil
+	case .Deflated:
+		buffer := make([]byte, local.csize)
+		defer if err != nil {
+			delete(buffer)
+		}
+		io.read_full(zip.reader, buffer) or_return
+		return buffer, nil
+	case:
+		panic(fmt.tprintf("unhandled compression method", local.compression_method))
+	}
+
+
+}
+
+
+unpack_file_into :: proc(
 	zip: Zip_File,
 	root: string,
 	file: Central_Directory,
@@ -312,7 +381,7 @@ unpack_to :: proc(
 	err: io.Error,
 ) {
 	for file in zip.files {
-		unpack_file(zip, out_directory, file, temp_allocator)
+		unpack_file_into(zip, out_directory, file, temp_allocator)
 	}
 	return nil
 }
