@@ -1,6 +1,7 @@
 package tar
 
 import "base:runtime"
+import "core:fmt"
 import "core:io"
 import "core:math"
 import "core:mem"
@@ -50,7 +51,7 @@ Tar_File :: struct {
 	stream:    io.Stream,
 	entries:   [dynamic]Tar_Entry,
 	allocator: runtime.Allocator,
-	offset:    int,
+	offset:    i64,
 }
 
 from_handle :: proc(
@@ -71,7 +72,13 @@ from_handle :: proc(
 	}
 
 	for true {
-		if !read_entry(&tar) {
+		got_entry, err := read_next_entry(&tar)
+		if !got_entry {
+			break
+		}
+
+		if err != nil {
+			fmt.println("Error in archive read", err)
 			break
 		}
 	}
@@ -103,23 +110,23 @@ entry_from_header :: proc(
 	timestamp := octal_to_num(header.mtime, i64)
 
 	context.allocator = allocator
-	entry.file_path = buf_to_string(header.file_path[:])
-	entry.file_mode = octal_to_num(header.file_mode, u32)
-	entry.uid = octal_to_num(header.uid, u32)
-	entry.gid = octal_to_num(header.gid, u32)
-	entry.file_size = octal_to_num(header.file_size, u64)
-	entry.mtime = time.unix(timestamp, 0)
-	entry.checksum = octal_to_num(header.checksum, u32)
-	entry.type = header.type
-	entry.linkname = buf_to_string(header.linkname[:])
-	entry.magic = header.magic
-	entry.version = header.version
-	entry.user = buf_to_string(header.user[:])
-	entry.group = buf_to_string(header.group[:])
-	entry.device_major = octal_to_num(header.device_major, u64)
-	entry.device_minor = octal_to_num(header.device_minor, u64)
-	entry.prefix = buf_to_string(header.prefix[:])
-	entry.offset = offset
+	// entry.file_path = buf_to_string(header.file_path[:])
+	// entry.file_mode = octal_to_num(header.file_mode, u32)
+	// entry.uid = octal_to_num(header.uid, u32)
+	// entry.gid = octal_to_num(header.gid, u32)
+	// entry.file_size = octal_to_num(header.file_size, u64)
+	// entry.mtime = time.unix(timestamp, 0)
+	// entry.checksum = octal_to_num(header.checksum, u32)
+	// entry.type = header.type
+	// entry.linkname = buf_to_string(header.linkname[:])
+	// entry.magic = header.magic
+	// entry.version = header.version
+	// entry.user = buf_to_string(header.user[:])
+	// entry.group = buf_to_string(header.group[:])
+	// entry.device_major = octal_to_num(header.device_major, u64)
+	// entry.device_minor = octal_to_num(header.device_minor, u64)
+	// entry.prefix = buf_to_string(header.prefix[:])
+	// entry.offset = offset
 
 	return entry
 }
@@ -165,7 +172,7 @@ parse_number :: proc(bytes: []u8) -> i64 {
 		if bytes[0] == 0o377 {
 			v = -(ipow(256, len(bytes) - 1) - v)
 		}
-		return v
+		return i64(v)
 	} else {
 		s := buf_to_string(bytes)
 		defer delete(s)
@@ -181,7 +188,7 @@ parse_number :: proc(bytes: []u8) -> i64 {
 	}
 }
 
-compute_checksums :: proc(bytes: []u8) -> (int, int) {
+compute_checksums :: proc(bytes: []u8) -> (u64, i64) {
 	unsigned: u64 = 256
 	signed: i64 = 256
 
@@ -207,25 +214,54 @@ read_tar_entry :: proc(tar: ^Tar_File) -> (entry: Tar_Entry, err: Tar_Error) {
 		return entry, Empty_Block{}
 	}
 
-	checksums := compute_checksums(block[:])
+	unsigned, signed := compute_checksums(block[:])
 	checksum := parse_number(block[148:156])
 
-	append(&tar.entries, entry)
+	if checksum != i64(unsigned) && checksum != signed {
+		return entry, Invalid_Checksum{}
+	}
 
+	data := transmute(Tar_UStar_Header)block
+	fmt.println(transmute(string)(data.file_path[:]))
+	return
 }
 
 read_next_entry :: proc(tar: ^Tar_File) -> (ok: bool, err: io.Error) {
 
 	offset := io.seek(tar.stream, 0, .Current) or_return
-	if offset != self.offset {
+	if offset != tar.offset {
 		// seek and force a single read
 		io.seek(tar.stream, tar.offset - 1, .Start) or_return
 		io.read_byte(tar.stream) or_return
 	}
 
+	header: Maybe(Tar_Entry)
 	for true {
+		header_, err := read_tar_entry(tar)
 
+		switch v in err {
+		case io.Error:
+			return false, v
+
+		case Invalid_Checksum:
+			if tar.offset == 0 {
+				return false, nil
+			}
+
+			tar.offset += 512
+
+		case Empty_Block:
+			tar.offset += 512
+		}
+		header = header_
+		break
 	}
 
+	h, was_set := header.?
+	if was_set {
+		append(&tar.entries, h)
+	}
+
+	return true, nil
 
 }
