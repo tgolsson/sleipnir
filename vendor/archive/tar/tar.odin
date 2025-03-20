@@ -12,6 +12,24 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
+Compression_Mode :: enum {
+	None,
+	Gzip,
+}
+
+File_Open_Mode :: enum {
+	// Open for read
+	Read,
+	/// Open for write, truncating if it exists
+	Write,
+	// Open for write, appending to the existing entries.
+	Append,
+	// Open for write, erroring if not existing.
+	Create,
+}
+
+
+open :: proc(name: string, mode: File_Open_Mode) {}
 Octal_Ascii :: struct($N: int) {
 	data: [N - 1]u8,
 	nul:  u8,
@@ -60,31 +78,47 @@ from_handle :: proc(
 	ignore_contents := false,
 	allocator := context.allocator,
 ) -> (
-	tar: Archive,
+	tar: ^Archive,
 	err: io.Error,
 ) {
+	context.allocator = allocator
+	tar = new(Archive)
 	tar.handle = h
 	tar.stream = os.stream_from_handle(h)
 	tar.entries = make([dynamic]Tar_Entry, allocator)
 	tar.offset = 0
+	tar.allocator = allocator
 
 	if ignore_contents {
 		return tar, err
 	}
 
 	for true {
-		got_entry, err := read_next_entry(&tar)
+		got_entry, err := read_next_entry(tar)
 		if !got_entry {
 			break
 		}
 
 		if err != nil {
-			fmt.println("Error in archive read", err)
-			break
+			destroy_archive(tar)
+			return nil, err
 		}
 	}
 
 	return tar, err
+}
+
+destroy_archive :: proc(tar: ^Archive) {
+	context.allocator = tar.allocator
+	for &entry in tar.entries {
+		delete(entry.name)
+		delete(entry.linkname)
+		delete(entry.user)
+		delete(entry.group)
+	}
+
+	delete(tar.entries)
+	free(tar)
 }
 
 buf_to_string :: proc(buf: []u8) -> string {
@@ -280,9 +314,9 @@ read_next_entry :: proc(tar: ^Archive) -> (ok: bool, err: io.Error) {
 	}
 
 	header: Maybe(Tar_Entry)
-	fmt.println("begin", tar.offset)
+
 	for true {
-		fmt.println(tar.offset)
+
 		header_, err := read_tar_entry(tar, tar.offset)
 
 		switch v in err {
